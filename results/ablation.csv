@@ -1,0 +1,5 @@
+technique,config,nominal_rps,arrival_rps,n,p50_ttft_s,p95_ttft_s,p99_ttft_s,goodput_rps,prefill_tokens_per_req,errors
+routing,round_robin,1.0,0.863,65,0.727,1.735,2.674,0.824,82.8,0
+routing,prefix,1.0,0.771,60,0.713,2.289,2.980,0.720,72.2,0
+routing,round_robin,2.0,1.447,109,1.737,5.138,5.964,0.849,69.5,0
+routing,prefix,2.0,1.639,146,2.336,5.773,6.960,0.730,63.7,0
