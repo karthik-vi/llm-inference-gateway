@@ -18,7 +18,8 @@ def read(path: str) -> list[Rec]:
     for r in csv.DictReader(open(path)):
         out.append(Rec(int(r["session"]), int(r["turn"]), float(r["t_start"]), float(r["ttft"]),
                        float(r["itl_mean"]), float(r["e2e"]), int(r["prompt_tokens"]),
-                       int(r["completion_tokens"]), r["status"], r["replica"]))
+                       int(r["completion_tokens"]), r["status"], r["replica"],
+                       int(r.get("prefill_tokens") or 0), int(r.get("cached_tokens") or 0)))
     return out
 
 

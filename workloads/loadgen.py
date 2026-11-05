@@ -27,6 +27,8 @@ class Rec:
     completion_tokens: int
     status: str
     replica: str
+    prefill_tokens: int = 0   # prompt tokens actually recomputed (timings.prompt_n)
+    cached_tokens: int = 0
 
 
 async def one_request(client: httpx.AsyncClient, url: str, turn: dict, sid: int, t_zero: float,
@@ -35,6 +37,7 @@ async def one_request(client: httpx.AsyncClient, url: str, turn: dict, sid: int,
             "temperature": 0.0, "stream": True, "stream_options": {"include_usage": True}}
     t0 = time.perf_counter()
     ttft, last, gaps, pt, ct, status, rep = -1.0, None, [], 0, 0, "ok", ""
+    pn = cn = 0
     try:
         async with client.stream("POST", f"{url}/v1/chat/completions", json=body,
                                  timeout=timeout) as r:
@@ -49,6 +52,9 @@ async def one_request(client: httpx.AsyncClient, url: str, turn: dict, sid: int,
                     if obj.get("usage"):
                         pt = obj["usage"].get("prompt_tokens", 0)
                         ct = obj["usage"].get("completion_tokens", 0)
+                    if obj.get("timings"):
+                        pn = obj["timings"].get("prompt_n", 0)
+                        cn = obj["timings"].get("cache_n", 0)
                     ch = obj.get("choices") or []
                     if ch and (ch[0].get("delta") or {}).get("content"):
                         now = time.perf_counter()
@@ -62,7 +68,7 @@ async def one_request(client: httpx.AsyncClient, url: str, turn: dict, sid: int,
     except httpx.HTTPError:
         status = "error"
     return Rec(sid, turn["turn"], t0 - t_zero, ttft, float(np.mean(gaps)) if gaps else 0.0,
-               time.perf_counter() - t0, pt, ct, status, rep)
+               time.perf_counter() - t0, pt, ct, status, rep, pn, cn)
 
 
 async def run(url: str, sessions: list[dict], rate_rps: float, duration_s: float,
@@ -117,6 +123,8 @@ def summarize(recs: list[Rec], duration_s: float, slo_ttft_s: float) -> dict:
         "ttft_p50": pct(tt, 50), "ttft_p95": pct(tt, 95), "ttft_p99": pct(tt, 99),
         "e2e_p50": pct([r.e2e for r in ok], 50), "e2e_p95": pct([r.e2e for r in ok], 95),
         "itl_mean_p50": pct([r.itl_mean for r in ok if r.itl_mean], 50),
+        "prefill_tokens": sum(r.prefill_tokens for r in ok),
+        "cached_tokens": sum(r.cached_tokens for r in ok),
         "prompt_tokens": sum(r.prompt_tokens for r in ok),
         "completion_tokens": sum(r.completion_tokens for r in ok),
     }

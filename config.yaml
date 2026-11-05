@@ -3,7 +3,8 @@ gateway:
   host: 127.0.0.1
   port: 8080
   upstream_timeout_s: 120.0
-  routing: round_robin        # round_robin | (prefix_aware in Phase 2)
+  routing: round_robin        # round_robin | prefix   (env GATEWAY_ROUTING overrides)
+  max_inflight_per_replica: 6
 replicas:
   - {name: r0, url: "http://127.0.0.1:9001"}
   - {name: r1, url: "http://127.0.0.1:9002"}

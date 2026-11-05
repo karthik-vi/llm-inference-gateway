@@ -12,7 +12,8 @@ class GatewayCfg(BaseModel):
     host: str = "127.0.0.1"
     port: int = 8080
     upstream_timeout_s: float = 120.0
-    routing: str = "round_robin"
+    routing: str = "round_robin"   # round_robin | prefix
+    max_inflight_per_replica: int = 6
 
 
 class Replica(BaseModel):
@@ -44,4 +45,7 @@ class Settings(BaseModel):
 
 def load_settings(path: str | None = None) -> Settings:
     p = Path(path or os.environ.get("GATEWAY_CONFIG", "config.yaml"))
-    return Settings.model_validate(yaml.safe_load(p.read_text()))
+    s = Settings.model_validate(yaml.safe_load(p.read_text()))
+    if os.environ.get("GATEWAY_ROUTING"):
+        s.gateway.routing = os.environ["GATEWAY_ROUTING"]
+    return s

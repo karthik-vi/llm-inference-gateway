@@ -14,7 +14,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from gateway import metrics
 from gateway.config import Replica, Settings, load_settings
-from gateway.router import RoundRobinRouter
+from gateway.router import make_router, prefix_key
 
 tracer = trace.get_tracer("gateway")
 
@@ -22,7 +22,8 @@ tracer = trace.get_tracer("gateway")
 def create_app(settings: Settings | None = None) -> FastAPI:
     cfg = settings or load_settings()
     app = FastAPI(title="llm-inference-gateway")
-    router = RoundRobinRouter(cfg.replicas)
+    router = make_router(cfg.gateway.routing, cfg.replicas, cfg.gateway.max_inflight_per_replica)
+    inflight: dict[str, int] = {r.name: 0 for r in cfg.replicas}
     client = httpx.AsyncClient(
         timeout=httpx.Timeout(cfg.gateway.upstream_timeout_s, connect=5.0),
         limits=httpx.Limits(max_connections=512, max_keepalive_connections=64),
@@ -76,13 +77,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status = "cancelled"
             raise
         finally:
+            inflight[rep.name] -= 1
             metrics.REQS.labels(rep.name, status).inc()
 
     @app.post("/v1/chat/completions")
     async def chat(request: Request) -> Response:
         body = await request.json()
         with tracer.start_as_current_span("route"):
-            rep = router.pick()
+            rep = router.pick(prefix_key(body.get("messages", [])), inflight)
+        inflight[rep.name] += 1
         if body.get("stream"):
             body.setdefault("stream_options", {"include_usage": True})
             return StreamingResponse(
@@ -97,6 +100,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             metrics.ERRORS.labels(rep.name, "upstream").inc()
             metrics.REQS.labels(rep.name, "upstream_error").inc()
             return JSONResponse({"error": "upstream failure"}, status_code=502)
+        finally:
+            inflight[rep.name] -= 1
         st = "ok" if r.status_code == 200 else f"http_{r.status_code}"
         metrics.REQS.labels(rep.name, st).inc()
         return JSONResponse(r.json(), status_code=r.status_code,
