@@ -5,3 +5,10 @@
 - **Goodput:** completed requests with TTFT <= SLO, per second.
 - **Single run per rate, seed 1.** No repeats, so no confidence intervals; treat small differences as noise.
 - Reproduce: `make bench-baseline` (about 11 min).
+
+## Later phases
+- **A/B runs** (`bench/ablate.sh`): fresh replicas per config (so KV caches do not carry over), same trace and seed, one run per rate. Baseline rows for admission/cache/cascade comparisons come from the Phase 1 sweep (older runs of 0.5-3 req/s predate the loadgen drain fix).
+- **Semantic cache runs** pre-warm the cache with 164 cacheable first-turn queries from sessions the test never uses (`bench/warm_cache.py`).
+- **llama-bench** (`bench/quant.sh`): pp256/tg32, 3 repetitions, 2 threads. **Microbenchmarks**: numpy triad (single thread) and BLAS GEMM.
+- **Overhead** (`bench/overhead.sh`): mock upstream with ~1 ms/token, 748 requests direct vs via gateway, py-spy flamegraph.
+- **Agent eval** (`eval/`): 24 tasks, temperature 0, seed 0, 2 workers; user-simulator paraphrases cached once. **Drill** (`bench/drill.py`): 200 s timeline with scraped metrics every 2 s; alert rules evaluated offline.
