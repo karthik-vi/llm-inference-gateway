@@ -63,7 +63,8 @@ def paraphrase_tasks(tasks: list[dict], llm: Callable[[str, int], str]) -> list[
         except Exception:  # noqa: BLE001
             new = ""
         keep = all(x in new for x in (t.get("order_id"), t.get("email")) if x)
-        ok = keep and 10 < len(new) < 400
+        must = {"lookup": "status", "cancel": "cancel", "policy": "?"}[t["type"]]
+        ok = keep and 10 < len(new) < 400 and must in new.lower() and "[" not in new
         out.append({**t, "base_opening": t["opening"], "opening": new if ok else t["opening"],
                     "paraphrased": ok})
     return out

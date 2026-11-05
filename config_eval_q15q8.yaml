@@ -1,0 +1,21 @@
+# Single config file for the whole repo (loaded by gateway.config.Settings).
+gateway:
+  host: 127.0.0.1
+  port: 8080
+  upstream_timeout_s: 120.0
+  routing: round_robin        # round_robin | prefix   (env GATEWAY_ROUTING overrides)
+  max_inflight_per_replica: 6
+replicas:
+  - {name: r0, url: "http://127.0.0.1:9001"}
+  - {name: r1, url: "http://127.0.0.1:9002"}
+llama:
+  server_bin: vendor/llama.cpp/build/bin/llama-server
+  model_small: models/qwen2.5-0.5b-instruct-q4_k_m.gguf
+  model_large: models/qwen2.5-1.5b-instruct-q8_0.gguf
+  threads_per_replica: 2      # 4 vCPUs / 2 replicas
+  parallel_slots: 4
+  ctx_per_slot: 2048
+  model: large                # which model the baseline replicas serve
+data:
+  bitext_csv: data/bitext.csv
+  trace_path: data/trace.jsonl
