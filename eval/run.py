@@ -16,11 +16,20 @@ def http_llm(url: str):
     client = httpx.Client(timeout=300)
 
     def llm(msgs: list[dict]) -> tuple[str, int, int]:
-        r = client.post(f"{url}/v1/chat/completions", json={
-            "messages": msgs, "max_tokens": 160, "temperature": 0.0, "seed": 0}).json()
-        u = r.get("usage", {})
-        return r["choices"][0]["message"]["content"], u.get("prompt_tokens", 0), \
-            u.get("completion_tokens", 0)
+        body = {"messages": msgs, "max_tokens": 160, "temperature": 0.0, "seed": 0,
+                "stream": True, "stream_options": {"include_usage": True}}
+        text, pt, ct = [], 0, 0
+        with client.stream("POST", f"{url}/v1/chat/completions", json=body) as r:
+            for line in r.iter_lines():
+                if not line.startswith("data:") or "[DONE]" in line:
+                    continue
+                obj = json.loads(line[5:])
+                if obj.get("usage"):
+                    pt, ct = obj["usage"].get("prompt_tokens", 0), obj["usage"].get("completion_tokens", 0)
+                ch = obj.get("choices") or []
+                if ch:
+                    text.append((ch[0].get("delta") or {}).get("content") or "")
+        return "".join(text), pt, ct
     return llm
 
 

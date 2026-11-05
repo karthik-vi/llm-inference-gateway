@@ -27,7 +27,7 @@ packages = ["bench", "gateway", "control", "perfmodel", "workloads", "eval"]
 [tool.ruff]
 line-length = 110
 target-version = "py311"
-extend-exclude = ["control/load_pb2.py", "control/load_pb2_grpc.py"]
+extend-exclude = ["scripts/make_notebooks.py", "control/load_pb2.py", "control/load_pb2_grpc.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

@@ -35,8 +35,10 @@ perfmodel:  ## predicted vs measured table (uses results/*.csv; `$(PY) -m perfmo
 	$(PY) -m perfmodel.correlate
 	$(PY) -m perfmodel.validate
 
-eval:
-	@echo "Phase 4 - not implemented yet" && false
+eval:  ## ~15 min on 4 vCPU: agent eval for 6 configs (24 tasks each); larger sets: python -m eval.tasks 40
+	$(PY) -m eval.tasks
+	bench/quality.sh q05q4_stream GATEWAY_CONFIG=config_eval_q05q4.yaml
+	bench/quality_all.sh
 
 lint:
 	$(PY) -m ruff check . && $(PY) -m ruff format --check .

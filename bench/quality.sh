@@ -10,4 +10,5 @@ $PY -m gateway.main > logs/gateway_q_$TAG.log 2>&1 & GW=$!
 sleep 12
 [ -n "${WARM:-}" ] && $PY -m bench.warm_cache
 $PY -m eval.run --tag "$TAG" --workers "${WORKERS:-2}" | tee logs/eval_$TAG.log
+curl -s http://127.0.0.1:8080/metrics | grep -E "^gw_(semcache|cascade|rejected)_total" > logs/metrics_$TAG.txt || true
 kill $GW; bash scripts/replicas.sh stop

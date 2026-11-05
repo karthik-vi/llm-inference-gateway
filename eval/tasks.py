@@ -75,7 +75,10 @@ if __name__ == "__main__":
 
     users = json.load(open("data/tau/users.json"))
     orders = json.load(open("data/tau/orders.json"))
-    tasks = base_tasks(users, orders)
+    import sys
+
+    n_per = int(sys.argv[1]) if len(sys.argv) > 1 else 8   # larger sets: run elsewhere
+    tasks = base_tasks(users, orders, n_per_type=n_per)
 
     def llm(prompt: str, seed: int) -> str:
         r = httpx.post("http://127.0.0.1:9001/v1/chat/completions", timeout=60, json={
