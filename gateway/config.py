@@ -14,6 +14,10 @@ class GatewayCfg(BaseModel):
     upstream_timeout_s: float = 120.0
     routing: str = "round_robin"   # round_robin | prefix
     max_inflight_per_replica: int = 6
+    admission: bool = False        # SLO-aware admission control (env GATEWAY_ADMISSION=1)
+    slo_ttft_s: float = 2.0
+    slots_per_replica: int = 4
+    admission_margin: float = 1.0
 
 
 class Replica(BaseModel):
@@ -48,4 +52,6 @@ def load_settings(path: str | None = None) -> Settings:
     s = Settings.model_validate(yaml.safe_load(p.read_text()))
     if os.environ.get("GATEWAY_ROUTING"):
         s.gateway.routing = os.environ["GATEWAY_ROUTING"]
+    if os.environ.get("GATEWAY_ADMISSION"):
+        s.gateway.admission = os.environ["GATEWAY_ADMISSION"] == "1"
     return s

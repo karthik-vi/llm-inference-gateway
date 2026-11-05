@@ -13,6 +13,7 @@ from opentelemetry import trace
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from gateway import metrics
+from gateway.admission import AdmissionController
 from gateway.config import Replica, Settings, load_settings
 from gateway.router import make_router, prefix_key
 
@@ -24,6 +25,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="llm-inference-gateway")
     router = make_router(cfg.gateway.routing, cfg.replicas, cfg.gateway.max_inflight_per_replica)
     inflight: dict[str, int] = {r.name: 0 for r in cfg.replicas}
+    gw = cfg.gateway
+    adm = (AdmissionController(gw.slo_ttft_s, gw.slots_per_replica, gw.admission_margin)
+           if gw.admission else None)
     client = httpx.AsyncClient(
         timeout=httpx.Timeout(cfg.gateway.upstream_timeout_s, connect=5.0),
         limits=httpx.Limits(max_connections=512, max_keepalive_connections=64),
@@ -42,7 +46,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         this generator) closes the upstream connection, which makes llama-server abort."""
         t0 = time.perf_counter()
         last: float | None = None
+        first_ttft: float | None = None
         status = "ok"
+        n_at_start = inflight[rep.name] - 1
         try:
             with tracer.start_as_current_span("upstream", attributes={"replica": rep.name}):
                 async with client.stream(
@@ -59,6 +65,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         if line.startswith("data:") and "[DONE]" not in line:
                             delta = _has_content(line)
                             if delta and last is None:
+                                first_ttft = now - t0
                                 metrics.TTFT.labels(rep.name).observe(now - t0)
                             elif delta and last is not None:
                                 metrics.ITL.labels(rep.name).observe(now - last)
@@ -78,11 +85,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise
         finally:
             inflight[rep.name] -= 1
+            if adm is not None and status == "ok":
+                adm.observe(first_ttft, time.perf_counter() - t0, n_at_start)
             metrics.REQS.labels(rep.name, status).inc()
 
     @app.post("/v1/chat/completions")
     async def chat(request: Request) -> Response:
         body = await request.json()
+        if adm is not None:
+            with tracer.start_as_current_span("admission"):
+                d = adm.decide(inflight)
+            if not d.admit:
+                metrics.REJECTED.inc()
+                return JSONResponse({"error": "SLO cannot be met", "est_ttft_s": d.est_ttft_s},
+                                    status_code=429, headers={"Retry-After": str(d.retry_after_s)})
         with tracer.start_as_current_span("route"):
             rep = router.pick(prefix_key(body.get("messages", [])), inflight)
         inflight[rep.name] += 1
