@@ -1,4 +1,4 @@
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Gauge, Histogram
 
 REQS = Counter("gw_requests_total", "Requests", ["replica", "status"])
 TTFT = Histogram(
@@ -13,3 +13,6 @@ ERRORS = Counter("gw_errors_total", "Errors", ["replica", "kind"])
 REJECTED = Counter("gw_rejected_total", "Requests rejected by admission control")
 CACHE = Counter("gw_semcache_total", "Semantic cache lookups", ["result"])
 CASCADE = Counter("gw_cascade_total", "Cascade decisions", ["tier"])
+GOODPUT = Counter("gw_goodput_total", "Requests whose TTFT met the SLO")
+INFLIGHT = Gauge("gw_inflight", "In-flight requests per replica", ["replica"])
+REPLICA_DOWN = Gauge("gw_replica_down", "1 while the circuit breaker holds a replica out", ["replica"])

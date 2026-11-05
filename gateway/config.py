@@ -19,6 +19,8 @@ class GatewayCfg(BaseModel):
     slots_per_replica: int = 4
     admission_margin: float = 1.0
     admission_seed: str = "none"   # none | perfmodel: seed EWMAs from the Phase 3 service-time model
+    breaker: bool = False          # passive circuit breaker on connect errors (env GATEWAY_BREAKER=1)
+    breaker_cooldown_s: float = 3.0
     semcache: bool = False         # semantic cache (env GATEWAY_SEMCACHE=1)
     semcache_threshold: float = 0.92
     cascade: str = "off"          # off | rule | llm (env GATEWAY_CASCADE)
@@ -61,6 +63,8 @@ def load_settings(path: str | None = None) -> Settings:
         s.gateway.cascade = os.environ["GATEWAY_CASCADE"]
     for r in s.replicas:
         r.tier = r.tier or s.llama.model
+    if os.environ.get("GATEWAY_BREAKER"):
+        s.gateway.breaker = os.environ["GATEWAY_BREAKER"] == "1"
     if os.environ.get("GATEWAY_SEMCACHE"):
         s.gateway.semcache = os.environ["GATEWAY_SEMCACHE"] == "1"
     if os.environ.get("GATEWAY_ADMISSION"):

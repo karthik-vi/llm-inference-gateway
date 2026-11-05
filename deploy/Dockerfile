@@ -9,7 +9,7 @@ COPY workloads workloads
 COPY eval eval
 COPY bench bench
 COPY config.yaml ./
-RUN pip install --no-cache-dir -e ".[cache]"
+RUN pip install --no-cache-dir -e ".[cache,otel]"
 ENV GATEWAY_CONFIG=/app/config.yaml
 EXPOSE 8080
 CMD ["python", "-m", "gateway.main"]

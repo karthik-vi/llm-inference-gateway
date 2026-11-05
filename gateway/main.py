@@ -19,8 +19,10 @@ from gateway.cascade import is_hard_llm, is_hard_rule
 from gateway.config import Replica, Settings, load_settings
 from gateway.router import make_router, prefix_key
 from gateway.semcache import SemanticCache, cacheable, fastembed_fn
+from gateway.tracing import setup_tracing
 
 tracer = trace.get_tracer("gateway")
+setup_tracing()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -46,6 +48,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         timeout=httpx.Timeout(cfg.gateway.upstream_timeout_s, connect=5.0),
         limits=httpx.Limits(max_connections=512, max_keepalive_connections=64),
     )
+
+    down_until: dict[str, float] = {}
+
+    def pick_healthy(pool, key: str):  # noqa: ANN001, ANN202
+        """Skip replicas held out by the breaker (half-open again after the cooldown)."""
+        now = time.monotonic()
+        load = {n: (10**6 if down_until.get(n, 0) > now else v) for n, v in inflight.items()}
+        rep = pool.pick(key, load)
+        for _ in range(len(cfg.replicas)):
+            if down_until.get(rep.name, 0) <= now:
+                break
+            rep = pool.pick(key, load)
+        for r in cfg.replicas:
+            metrics.REPLICA_DOWN.labels(r.name).set(1 if down_until.get(r.name, 0) > now else 0)
+        return rep
+
+    def trip(name: str) -> None:
+        if gw.breaker:
+            down_until[name] = time.monotonic() + gw.breaker_cooldown_s
 
     sem = (SemanticCache(fastembed_fn(), gw.semcache_threshold) if gw.semcache else None)
 
@@ -76,7 +97,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         status = "ok"
         n_at_start = inflight[rep.name] - 1
         try:
-            with tracer.start_as_current_span("upstream", attributes={"replica": rep.name}):
+            with tracer.start_as_current_span("upstream", attributes={"replica": rep.name}) as span:
                 async with client.stream(
                     "POST", f"{rep.url}/v1/chat/completions", json=body
                 ) as resp:
@@ -88,6 +109,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         if not line:
                             continue
                         now = time.perf_counter()
+                        if line.startswith("data:") and '"timings"' in line:
+                            tm = json.loads(line[5:]).get("timings", {})
+                            span.set_attribute("llama.prompt_ms", tm.get("prompt_ms", 0.0))
+                            span.set_attribute("llama.decode_ms", tm.get("predicted_ms", 0.0))
+                            span.set_attribute("llama.prefill_tokens", tm.get("prompt_n", 0))
+                            if first_ttft is not None:  # TTFT minus llama's own prefill = queueing
+                                span.set_attribute("queue_wait_est_s", max(
+                                    0.0, first_ttft - tm.get("prompt_ms", 0.0) / 1000))
                         if line.startswith("data:") and "[DONE]" not in line:
                             delta = _has_content(line)
                             if delta and cache_text is not None:
@@ -95,6 +124,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             if delta and last is None:
                                 first_ttft = now - t0
                                 metrics.TTFT.labels(rep.name).observe(now - t0)
+                                span.set_attribute("ttft_s", first_ttft)
+                                if first_ttft <= gw.slo_ttft_s:
+                                    metrics.GOODPUT.inc()
                             elif delta and last is not None:
                                 metrics.ITL.labels(rep.name).observe(now - last)
                             if delta:
@@ -109,18 +141,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except httpx.HTTPError:
             status = "upstream_error"
             metrics.ERRORS.labels(rep.name, "upstream").inc()
+            trip(rep.name)
             raise
         except BaseException:
             status = "cancelled"
             raise
         finally:
             inflight[rep.name] -= 1
+            metrics.INFLIGHT.labels(rep.name).set(inflight[rep.name])
             if adm is not None and status == "ok":
                 adm.observe(first_ttft, time.perf_counter() - t0, n_at_start)
             metrics.REQS.labels(rep.name, status).inc()
 
     @app.post("/v1/chat/completions")
     async def chat(request: Request) -> Response:
+        t_req = time.perf_counter()
         body = await request.json()
         ctext = None
         if sem is not None and body.get("stream") and cacheable(body.get("messages", [])):
@@ -130,6 +165,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if ans is not None:
                 metrics.CACHE.labels("hit").inc()
                 metrics.REQS.labels("cache", "ok").inc()
+                metrics.TTFT.labels("cache").observe(time.perf_counter() - t_req)
+                metrics.GOODPUT.inc()
                 return StreamingResponse(cached_stream(ans), media_type="text/event-stream",
                                          headers={"X-Replica": "cache"})
             metrics.CACHE.labels("miss").inc()
@@ -149,8 +186,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             metrics.CASCADE.labels("large" if hard else "small").inc()
             pool = routers["large" if hard else "small"]
         with tracer.start_as_current_span("route"):
-            rep = pool.pick(prefix_key(body.get("messages", [])), inflight)
+            rep = pick_healthy(pool, prefix_key(body.get("messages", [])))
         inflight[rep.name] += 1
+        metrics.INFLIGHT.labels(rep.name).set(inflight[rep.name])
         if body.get("stream"):
             body.setdefault("stream_options", {"include_usage": True})
             return StreamingResponse(
