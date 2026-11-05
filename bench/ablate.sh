@@ -4,6 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PY=${PY:-.venv/bin/python}; TAG=$1; shift
+for kv in "$@"; do export "$kv"; done
 bash scripts/replicas.sh stop; sleep 2; bash scripts/replicas.sh start >/dev/null
 env "$@" $PY -m gateway.main > logs/gateway_$TAG.log 2>&1 & GW=$!
 sleep 12   # semcache loads the embedding model at startup

@@ -64,6 +64,8 @@ def prefix_key(messages: list[dict]) -> str:
 
 
 def make_router(kind: str, replicas: list[Replica], max_inflight: int):
+    if not replicas:
+        raise ValueError("no replicas configured")
     if kind == "prefix":
         return PrefixRouter(replicas, max_inflight=max_inflight)
     if kind == "round_robin":

@@ -7,13 +7,18 @@ if [ "${1:-}" = stop ]; then pkill -f "llama-server" || true; exit 0; fi
 eval "$($PY - <<'PYEOF'
 from gateway.config import load_settings
 s = load_settings(); l = s.llama
-m = l.model_small if l.model == "small" else l.model_large
-print(f'BIN={l.server_bin} MODEL={m} T={l.threads_per_replica} P={l.parallel_slots} C={l.ctx_per_slot}')
-print('PORTS="' + " ".join(r.url.rsplit(":",1)[1] for r in s.replicas) + '"')
+print(f'BIN={l.server_bin} T={l.threads_per_replica} P={l.parallel_slots} C={l.ctx_per_slot}')
+spec = []
+for r in s.replicas:
+    m = l.model_small if r.tier == "small" else l.model_large
+    spec.append(r.url.rsplit(":", 1)[1] + ":" + m)
+print('SPEC="' + " ".join(spec) + '"')
+print('PORTS="' + " ".join(r.url.rsplit(":", 1)[1] for r in s.replicas) + '"')
 PYEOF
 )"
 mkdir -p logs; i=0
-for port in $PORTS; do
+for sp in $SPEC; do
+  port=${sp%%:*}; MODEL=${sp#*:}
   nohup $BIN -m $MODEL --host 127.0.0.1 --port $port -t $T -np $P -c $((C*P)) \
     --cont-batching --cache-prompt > logs/replica$i.log 2>&1 &
   i=$((i+1))

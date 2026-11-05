@@ -15,6 +15,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from gateway import metrics
 from gateway.admission import AdmissionController
+from gateway.cascade import is_hard_llm, is_hard_rule
 from gateway.config import Replica, Settings, load_settings
 from gateway.router import make_router, prefix_key
 from gateway.semcache import SemanticCache, cacheable, fastembed_fn
@@ -25,6 +26,9 @@ tracer = trace.get_tracer("gateway")
 def create_app(settings: Settings | None = None) -> FastAPI:
     cfg = settings or load_settings()
     app = FastAPI(title="llm-inference-gateway")
+    tiers = {t: [r for r in cfg.replicas if r.tier == t] for t in ("small", "large")}
+    routers = {t: make_router(cfg.gateway.routing, rs, cfg.gateway.max_inflight_per_replica)
+               for t, rs in tiers.items() if rs}
     router = make_router(cfg.gateway.routing, cfg.replicas, cfg.gateway.max_inflight_per_replica)
     inflight: dict[str, int] = {r.name: 0 for r in cfg.replicas}
     gw = cfg.gateway
@@ -128,8 +132,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 metrics.REJECTED.inc()
                 return JSONResponse({"error": "SLO cannot be met", "est_ttft_s": d.est_ttft_s},
                                     status_code=429, headers={"Retry-After": str(d.retry_after_s)})
+        pool = router
+        if gw.cascade != "off" and tiers["small"] and tiers["large"]:
+            with tracer.start_as_current_span("cascade"):
+                msgs = body.get("messages", [])
+                hard = (is_hard_rule(msgs) if gw.cascade == "rule"
+                        else await is_hard_llm(client, tiers["small"][0].url, msgs))
+            metrics.CASCADE.labels("large" if hard else "small").inc()
+            pool = routers["large" if hard else "small"]
         with tracer.start_as_current_span("route"):
-            rep = router.pick(prefix_key(body.get("messages", [])), inflight)
+            rep = pool.pick(prefix_key(body.get("messages", [])), inflight)
         inflight[rep.name] += 1
         if body.get("stream"):
             body.setdefault("stream_options", {"include_usage": True})

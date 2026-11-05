@@ -20,11 +20,13 @@ class GatewayCfg(BaseModel):
     admission_margin: float = 1.0
     semcache: bool = False         # semantic cache (env GATEWAY_SEMCACHE=1)
     semcache_threshold: float = 0.92
+    cascade: str = "off"          # off | rule | llm (env GATEWAY_CASCADE)
 
 
 class Replica(BaseModel):
     name: str
     url: str
+    tier: str | None = None   # small | large; default = llama.model
 
 
 class LlamaCfg(BaseModel):
@@ -54,6 +56,10 @@ def load_settings(path: str | None = None) -> Settings:
     s = Settings.model_validate(yaml.safe_load(p.read_text()))
     if os.environ.get("GATEWAY_ROUTING"):
         s.gateway.routing = os.environ["GATEWAY_ROUTING"]
+    if os.environ.get("GATEWAY_CASCADE"):
+        s.gateway.cascade = os.environ["GATEWAY_CASCADE"]
+    for r in s.replicas:
+        r.tier = r.tier or s.llama.model
     if os.environ.get("GATEWAY_SEMCACHE"):
         s.gateway.semcache = os.environ["GATEWAY_SEMCACHE"] == "1"
     if os.environ.get("GATEWAY_ADMISSION"):
