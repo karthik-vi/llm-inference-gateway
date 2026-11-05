@@ -42,3 +42,26 @@ Format per entry: Context -> Options considered -> Decision -> Evidence (numbers
   | 6.0 | 0.06 | 1.04 | 29.8 s | 7.13 s | 95 of 241 |
 - **Result: positive under overload.** Goodput rises from 0.24 to 1.37 req/s at nominal 3.0 and from 0.06 to 1.04 at 6.0, at the cost of rejecting 22-39% of requests. At nominal 2.0 the gain is smaller (0.89 to 1.08) and p95 stays above the SLO.
 - **Caveats:** (1) The load generator ends a session when a request is rejected (the client gives up and does not retry), so measured arrival rates are lower with admission on; "rejected/failed" counts all non-ok requests. (2) Admitted p95 exceeded the 2.0 s SLO at 2.0 and 6.0 rps (3.81 s, 7.13 s): the estimator uses EWMAs and lags load changes, and the margin is 1.0. (3) Off and on runs were separate runs (the off runs of 0.5-3 rps predate the loadgen drain fix), single run each, no confidence intervals. (4) The estimator uses crude in-flight counts; Phase 3's service-time model is meant to replace it.
+
+## ADR-005: Semantic cache (bge-small-en-v1.5 via fastembed + FAISS flat IP, threshold 0.92)
+- **Problem / metric:** FAQ-style first turns repeat across users; re-running the LLM wastes compute. Metrics: % of LLM calls avoided, p95 TTFT / goodput vs baseline, wrong-answer rate vs threshold.
+- **Dependencies (why):** `fastembed` (ONNX, ~4 ms/query on this CPU; avoids torch), `faiss-cpu` (nearest-neighbour search). Embedding model BAAI/bge-small-en-v1.5 (MIT).
+- **Safety rule:** cache only single-turn messages with no assistant history, no digits and no account-state wording ("my order", "tracking", ...). Multi-turn and account-dependent turns always go to the LLM (unit-tested).
+- **Threshold tuning** (`python -m eval.semcache_tune`; results/semcache_tuning.csv, plots/semcache_tuning.png): 8000 indexed vs 3000 held-out cacheable Bitext queries; "wrong" = nearest cached query has a different Bitext intent (a proxy: same intent does not guarantee an identical answer).
+
+  | threshold | hit rate | wrong of hits |
+  |---|---|---|
+  | 0.88 | 97.2% | 0.51% |
+  | 0.90 | 95.0% | 0.35% |
+  | 0.92 | 91.3% | 0.15% |
+  | 0.96 | 71.8% | 0.14% |
+  | 0.98 | 44.3% | 0.0% |
+  Chosen **0.92**: best hit rate before the wrong-answer rate flattens. **These offline hit rates are optimistic**: Bitext is templated paraphrases of 27 intents, so near-duplicates are abundant; real traffic would hit far less.
+- **Online A/B** (results/ablation.csv; cache pre-warmed with 164 cacheable queries from sessions not in the test; entries written through on each miss; same trace/seed; baseline = Phase 1 runs; one run each):
+
+  | nominal rps | LLM calls avoided | p95 TTFT base -> cache | goodput base -> cache |
+  |---|---|---|---|
+  | 1.0 | 10/78 = 13% | 1.53 s -> 2.52 s | 0.93 -> 0.95 |
+  | 2.0 | 32/101 = 32% | 4.03 s -> 1.42 s | 0.89 -> 1.55 |
+  | 3.0 | 46/173 = 27% | 16.2 s -> 9.24 s | 0.24 -> 0.80 |
+- **Result: helps at and above saturation, no benefit (and p95 worse, likely noise or embedding CPU contention) at light load.** Only first-turn state-free messages are cacheable, which caps online hit rate at roughly a third of requests. Cached answers are the LLM's own earlier 32-token answers, so quality cost on the support agent is measured in Phase 4. Cost per 1k requests is not measured separately: avoided LLM calls translate directly to avoided replica compute, which Phase 3's service-time model will convert into replicas.
