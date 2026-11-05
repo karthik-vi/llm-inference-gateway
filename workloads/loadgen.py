@@ -105,9 +105,13 @@ def pct(xs: list[float], p: float) -> float:
 
 def summarize(recs: list[Rec], duration_s: float, slo_ttft_s: float) -> dict:
     ok = [r for r in recs if r.status == "ok" and r.ttft >= 0]
+    # actual span (arrivals continue past duration_s as sessions finish their turns)
+    span = (max(r.t_start + r.e2e for r in recs) - min(r.t_start for r in recs)) if recs else 1.0
+    duration_s = max(span, 1e-9)
     tt = [r.ttft for r in ok]
     good = [r for r in ok if r.ttft <= slo_ttft_s]
     return {
+        "span_s": span, "arrival_rps": len(recs) / duration_s,
         "n": len(recs), "ok": len(ok), "errors": len(recs) - len(ok),
         "throughput_rps": len(ok) / duration_s, "goodput_rps": len(good) / duration_s,
         "ttft_p50": pct(tt, 50), "ttft_p95": pct(tt, 95), "ttft_p99": pct(tt, 99),
