@@ -80,3 +80,21 @@ Format per entry: Context -> Options considered -> Decision -> Evidence (numbers
   | 1.5B | F16 | not run: ~3 GB download exceeds the 2 GB rule | | |
 - **Result:** decode is memory-bandwidth-bound (tg rises as size falls: 13.8 -> 20.5 -> 25.0 tok/s for 0.5B). Prefill is compute-bound and roughly flat across quants for 0.5B (differences within noise), but Q8_0 is slower than Q4_K_M for 1.5B (39.8 vs 65.1).
 - **Decision:** Q4_K_M for both tiers (fastest decode, smallest memory; the replicas already run it). Q8_0 may only be justified if Phase 4 shows a quality gap; until then this is a speed/memory decision with **no quality evidence**.
+
+## ADR-008: Small->large model cascade (rule router and prompt-based 0.5B router)
+- **Problem / metric:** serve easy turns on the 0.5B model and escalate hard ones to 1.5B, to cut cost/latency vs always using 1.5B. Metrics: p95 TTFT and goodput vs always-1.5B at the same load; escalation rate; router accuracy. Quality delta is Phase 4's job.
+- **Options:** always-1.5B on 2 replicas (baseline); cascade on 1x0.5B + 1x1.5B replica with a **rule** router (HARD = multi-turn or state/account wording) or a **prompt-based 0.5B** router (one extra `max_tokens=3` call; multi-turn is always HARD). Implemented: `gateway.cascade` (`off|rule|llm`), `config_cascade.yaml`, `config_large.yaml`.
+- **Router accuracy** (`python -m eval.cascade_router_eval`, 200 trace turns, label = rule label as a proxy for "hard"): accuracy 85.0%, hard recall 88.7%, easy recall 78.9% (multi-turn turns are escalated by rule, which inflates this).
+- **Evidence** (results/ablation.csv, one run each, fresh replicas; hardware 4 vCPU, 2 threads/replica; SLO 2 s):
+
+  | nominal rps | config | escalated to 1.5B | p50 TTFT | p95 TTFT | goodput |
+  |---|---|---|---|---|---|
+  | 0.5 | always-1.5B (2 replicas) | 100% | 1.73 s | 3.55 s | 0.26 |
+  | 0.5 | cascade, rule | 28/41 = 68% | 3.30 s | 8.21 s | 0.19 |
+  | 0.5 | cascade, LLM router | 30/41 = 73% | 2.76 s | 9.68 s | 0.15 |
+  | 1.0 | always-1.5B | 100% | 2.54 s | 8.38 s | 0.22 |
+  | 1.0 | cascade, rule | 42/64 = 66% | 5.84 s | 22.4 s | 0.23 |
+  | 1.0 | cascade, LLM router | 42/64 = 66% | 7.04 s | 27.2 s | 0.22 |
+  For reference, always-0.5B on 2 replicas (Phase 1 baseline) had p95 TTFT 1.34 s / 1.53 s at nominal 0.5 / 1.0 rps.
+- **Result: negative.** With this workload about two thirds of turns are multi-turn or state-dependent (HARD), so the single 1.5B replica receives ~2/3 of traffic and becomes the bottleneck; the cascade is *slower* than simply running 2x 1.5B, and the LLM router adds an extra model call without better routing than the rule. The topology was not sized to the traffic split (a 1:2 small:large replica ratio, or more cores, was not tried). Cost per 1k requests was not measured, so no cost claim is made.
+- **Decision:** keep the code, default `cascade: off`. The cascade only makes sense when most turns are easy or replicas are provisioned in proportion to the escalation rate; this is exactly what the Phase 3 capacity planner should size. Quality of 0.5B vs 1.5B is not yet measured (Phase 4).
