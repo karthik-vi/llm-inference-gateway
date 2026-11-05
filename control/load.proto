@@ -1,0 +1,19 @@
+syntax = "proto3";
+package control;
+
+// Bidirectional stream: the gateway opens it and says how often it wants stats (Hello);
+// the sidecar pushes LoadStats at that cadence. Cached-prefix hashes are NOT included:
+// llama-server does not expose them (see docs/DECISIONS.md ADR-007).
+service LoadStream {
+  rpc Stream(stream Hello) returns (stream LoadStats);
+}
+
+message Hello { int32 interval_ms = 1; }
+
+message LoadStats {
+  string replica = 1;
+  double t_src = 2;        // sidecar wall-clock time when it read llama-server (epoch s)
+  int32 slots_busy = 3;    // llamacpp:requests_processing
+  int32 queue_depth = 4;   // llamacpp:requests_deferred
+  double tokens_per_s = 5; // llamacpp:predicted_tokens_seconds
+}
