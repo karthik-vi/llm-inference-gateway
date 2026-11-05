@@ -2,7 +2,7 @@
 
 An OpenAI-compatible gateway in front of self-hosted LLM replicas, built to answer three questions with measurements: how much each serving technique changes p95 time-to-first-token (TTFT) and goodput, how many replicas a workload needs, and what each optimization costs in quality. For teams self-hosting small open models on modest hardware.
 
-**Status:** Phase 1 (baseline serving and load generator) is done. Phases 2-7 (routing, admission control, semantic cache, cascade, perf model, eval, observability) are not started. Everything below is the baseline only.
+**Status:** Phase 1 (baseline) done. Phase 2 partly done: prefix routing (negative result) and admission control (positive). Not started: gRPC control plane, semantic cache, quantization, cascade, perf model, eval, observability.
 
 ```mermaid
 flowchart LR
@@ -28,6 +28,15 @@ SLO: p95 TTFT <= 2.0 s ([ADR-002](docs/DECISIONS.md)). Single run per rate, 2026
 | 1.76 | 17.2 s | 27.7 s | 29.0 s | 0.19 |
 
 ![baseline](results/plots/baseline_sweep.png)
+
+## Phase 2 so far (baseline vs technique, details in [docs/DECISIONS.md](docs/DECISIONS.md))
+| technique | metric | baseline | with technique |
+|---|---|---|---|
+| SLO admission control ([ADR-004](docs/DECISIONS.md)) | goodput @ nominal 3 rps | 0.24 req/s, p95 TTFT 16.2 s | 1.37 req/s, p95 2.52 s (22% rejected) |
+| SLO admission control | goodput @ nominal 6 rps | 0.06 req/s, p95 29.8 s | 1.04 req/s, p95 7.13 s (39% rejected) |
+| Prefix-aware routing ([ADR-003](docs/DECISIONS.md)) | prefill tokens/request @ 1 rps | 82.8 | 72.2, but p95 got worse: not claimed |
+
+Single runs, no confidence intervals; clients do not retry after a 429.
 
 ## Limitations
 - Sessions are synthetic: chained single-turn Bitext rows (see [docs/DATA.md](docs/DATA.md)).
