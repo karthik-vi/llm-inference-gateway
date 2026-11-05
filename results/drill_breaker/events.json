@@ -1,0 +1,34 @@
+{
+ "events": [
+  {
+   "t": 40.0,
+   "event": "kill r1"
+  },
+  {
+   "t": 80.0,
+   "event": "restart r1 (process start)"
+  },
+  {
+   "t": 80.83,
+   "event": "r1 healthy again"
+  },
+  {
+   "t": 120.0,
+   "event": "throttle r1 (30% duty)"
+  },
+  {
+   "t": 170.03,
+   "event": "unthrottle r1"
+  }
+ ],
+ "timeline": {
+  "kill": 40,
+  "restart": 80,
+  "throttle": 120,
+  "unthrottle": 170,
+  "end": 200
+ },
+ "breaker": true,
+ "rate": 1.0,
+ "t0_epoch": 1793861366.536404
+}

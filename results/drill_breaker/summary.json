@@ -1,0 +1,66 @@
+{
+ "tag": "breaker",
+ "breaker": true,
+ "phases": {
+  "healthy_0_40": {
+   "n": 35,
+   "error_rate": 0.029,
+   "p95_ttft": 3.0,
+   "good_frac": 0.771,
+   "to_r1": 0.49
+  },
+  "r1_killed": {
+   "n": 36,
+   "error_rate": 0.278,
+   "p95_ttft": 1.57,
+   "good_frac": 0.694,
+   "to_r1": 0.28
+  },
+  "healthy_80_120": {
+   "n": 28,
+   "error_rate": 0.0,
+   "p95_ttft": 0.86,
+   "good_frac": 1.0,
+   "to_r1": 0.5
+  },
+  "r1_throttled": {
+   "n": 38,
+   "error_rate": 0.0,
+   "p95_ttft": 17.88,
+   "good_frac": 0.579,
+   "to_r1": 0.5
+  },
+  "after_170": {
+   "n": 34,
+   "error_rate": 0.0,
+   "p95_ttft": 6.61,
+   "good_frac": 0.559,
+   "to_r1": 0.5
+  }
+ },
+ "alerts": {
+  "ReplicaErrors_first_fire_after_kill_s": 0.3,
+  "SLOFastBurn_first_fire_after_kill_s": 0.3,
+  "SLOFastBurn_first_fire_after_throttle_s": 30.7,
+  "note": "burn-rate rule evaluated offline on scraped counters, windows scaled to 10s/30s (prod 5m/1h), threshold 14.4x of a 1% budget"
+ },
+ "traces": {
+  "upstream_spans_in_kill_window": 36,
+  "error_spans": 10,
+  "error_spans_by_replica": {
+   "r1": 10
+  },
+  "throttle_window_r0": {
+   "n": 16,
+   "ttft_mean_s": 0.65,
+   "llama_prefill_ms_mean": 634.0,
+   "llama_decode_ms_mean": 1491.0
+  },
+  "throttle_window_r1": {
+   "n": 15,
+   "ttft_mean_s": 11.62,
+   "llama_prefill_ms_mean": 2171.0,
+   "llama_decode_ms_mean": 9703.0
+  }
+ }
+}
