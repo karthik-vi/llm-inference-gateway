@@ -91,8 +91,11 @@ async def run(url: str, sessions: list[dict], rate_rps: float, duration_s: float
                 await asyncio.sleep(delay)
             tasks.append(asyncio.create_task(session(sessions[i % len(sessions)], client)))
             i += 1
-        await asyncio.wait_for(asyncio.gather(*tasks), timeout=timeout + 60) \
-            if tasks else None
+        if tasks:
+            _, pending = await asyncio.wait(tasks, timeout=timeout + 30)
+            for t in pending:  # unfinished sessions at drain deadline: drop, keep recorded reqs
+                t.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
     return recs
 
 
