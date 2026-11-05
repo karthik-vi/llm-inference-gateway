@@ -65,3 +65,18 @@ Format per entry: Context -> Options considered -> Decision -> Evidence (numbers
   | 2.0 | 32/101 = 32% | 4.03 s -> 1.42 s | 0.89 -> 1.55 |
   | 3.0 | 46/173 = 27% | 16.2 s -> 9.24 s | 0.24 -> 0.80 |
 - **Result: helps at and above saturation, no benefit (and p95 worse, likely noise or embedding CPU contention) at light load.** Only first-turn state-free messages are cacheable, which caps online hit rate at roughly a third of requests. Cached answers are the LLM's own earlier 32-token answers, so quality cost on the support agent is measured in Phase 4. Cost per 1k requests is not measured separately: avoided LLM calls translate directly to avoided replica compute, which Phase 3's service-time model will convert into replicas.
+
+## ADR-006: Quantization per tier (speed/memory only; quality column filled in Phase 4)
+- **Problem / metric:** pick the GGUF quantization for each model tier. Metrics: model memory (file size), prompt-processing tokens/s (pp256, TTFT driver), decode tokens/s (tg32), via `llama-bench -t 2 -r 3` (mean +- stddev over 3 reps; results/quant_bench.csv; reproduce `bench/quant.sh`; Xeon @ 2.80GHz, 2 threads, llama.cpp build 8bed7cf, 2026-11-05).
+- **Evidence:**
+
+  | model | quant | size | pp256 tok/s | tg32 tok/s |
+  |---|---|---|---|---|
+  | 0.5B | F16 | 1260 MB | 159.8 +- 7.1 | 13.8 +- 0.3 |
+  | 0.5B | Q8_0 | 670 MB | 142.6 +- 20.0 | 20.5 +- 0.4 |
+  | 0.5B | Q4_K_M | 485 MB | 135.4 +- 13.3 | 25.0 +- 1.4 |
+  | 1.5B | Q4_K_M | 1111 MB | 65.1 +- 2.1 | 11.6 +- 0.4 |
+  | 1.5B | Q8_0 | 1889 MB | 39.8 +- 2.2 | 7.1 +- 0.3 |
+  | 1.5B | F16 | not run: ~3 GB download exceeds the 2 GB rule | | |
+- **Result:** decode is memory-bandwidth-bound (tg rises as size falls: 13.8 -> 20.5 -> 25.0 tok/s for 0.5B). Prefill is compute-bound and roughly flat across quants for 0.5B (differences within noise), but Q8_0 is slower than Q4_K_M for 1.5B (39.8 vs 65.1).
+- **Decision:** Q4_K_M for both tiers (fastest decode, smallest memory; the replicas already run it). Q8_0 may only be justified if Phase 4 shows a quality gap; until then this is a speed/memory decision with **no quality evidence**.
