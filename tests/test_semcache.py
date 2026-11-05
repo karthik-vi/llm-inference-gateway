@@ -8,7 +8,7 @@ def _fake_embed(texts: list[str]) -> np.ndarray:
     out = []
     for t in texts:
         v = np.zeros(8, dtype="float32")
-        v[hash(t.split()[0]) % 8] = 1.0
+        v[ord(t[0]) % 7] = 1.0
         v[7] += 0.01 * len(t)
         out.append(v / np.linalg.norm(v))
     return np.vstack(out)

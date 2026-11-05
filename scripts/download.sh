@@ -14,3 +14,7 @@ fetch $HF/datasets/bitext/Bitext-customer-support-llm-chatbot-training-dataset/r
 fetch $HF/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q8_0.gguf models/qwen2.5-0.5b-instruct-q8_0.gguf
 fetch $HF/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-fp16.gguf models/qwen2.5-0.5b-instruct-fp16.gguf
 fetch $HF/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q8_0.gguf models/qwen2.5-1.5b-instruct-q8_0.gguf
+# Phase 4: tau-bench retail DB + policy (MIT, github.com/sierra-research/tau-bench)
+mkdir -p data/tau
+TB=https://raw.githubusercontent.com/sierra-research/tau-bench/main/tau_bench/envs/retail
+for f in data/users.json data/orders.json data/products.json wiki.md; do fetch $TB/$f data/tau/$(basename $f); done
