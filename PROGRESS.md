@@ -1,25 +1,22 @@
 # PROGRESS
 
 ## Done
-- Phase 0: env check, skeleton, CI, Makefile, ruff/pytest.
-- Phase 1 (acceptance met): llama.cpp CPU build, 2 replicas (`scripts/replicas.sh`), gateway v0 (round-robin, SSE, upstream cancel on disconnect via closing the stream, timeouts, Prometheus, OTel spans), synthetic multi-turn trace builder, Poisson load generator, baseline sweep + report, SLO chosen (p95 TTFT <= 2 s), results in `results/`, docs (DECISIONS ADR-001/002, BENCHMARKS, DATA, ENVIRONMENT), README.
-- Headline: baseline saturates at ~1.6-1.7 req/s; goodput peaks 0.93 req/s then collapses to 0.06 at overload.
-
-- Phase 2a prefix-aware routing: implemented + tested, A/B negative/inconclusive (ADR-003), default off.
-- Phase 2b SLO admission control: implemented + tested; goodput 0.24 -> 1.37 req/s at nominal 3 rps, 0.06 -> 1.04 at 6 rps (ADR-004).
+- Phase 0, 1: env, skeleton, CI, baseline serving + load generator + sweep (ADR-001/002).
+- Phase 2 (all six measured, ADR-003..009): prefix routing (negative), admission (positive), gRPC vs polling (no benefit), semantic cache (positive at saturation), quantization (Q4_K_M chosen, speed only), cascade (negative), combined run (not additive).
+- Phase 3 (ADR-010): HW microbenchmarks, roofline model (decode held-out error 98% -> 5%, prefill 31% -> 38%), capacity planner CLI (pessimistic: +58..291% p95), gateway overhead +3.8 ms p50 / +9.5 ms p95, py-spy flamegraph.
+- Must tier (Phases 0-3) COMPLETE.
 
 ## In progress
-- Phase 2 is PARTIAL (a, b done). Not started: c gRPC control plane vs HTTP polling, d semantic cache, e quantization, f cascade; `make bench-ablation` not wired.
+- Phase 4 (Should) starting.
 
 ## Next step
-- 2d semantic cache (biggest expected win on FAQ intents; needs bge-small/MiniLM + FAISS, justify in ADR), then 2e quantization (cheap: 3 GGUF variants), 2f cascade, 2c gRPC last. Wire `make bench-ablation` (uses bench/ablate.sh). Then Phase 3.
+Phase 4 agent + eval harness + quality column; then 5 (observability), 6 (notebooks), 7 only if budget remains. README "predict before you buy hardware" section and final results table still to write.
 
 ## Blockers / caveats
 - Docker daemon unusable (not verified in this environment).
-- `make bench-baseline` / ablation targets not run end to end via make; bench/ablate.sh was run directly.
-- Tests cover router + admission only; loadgen and the SSE proxy are untested. Upstream cancel on disconnect unverified.
-- Single run per config, no confidence intervals; admitted p95 can exceed the SLO (estimator lag).
-- Replica threads not core-pinned; 1.5B GGUF downloaded but unused.
+- Single runs everywhere, no confidence intervals. Admission can shed all LLM traffic when its EWMA is inflated (ADR-009). Planner is pessimistic. Combined run worse than admission alone at 3 rps.
+- `make bench-baseline`, `make bench-ablation` targets were assembled from scripts that were run directly; not run end to end via make.
+- Tests: router, admission, semcache, perfmodel. Loadgen and SSE proxy untested.
 
 ## How to resume
-Read CLAUDE.md, docs/PROJECT_BRIEF.md, this file. `make setup && make download`. A/B runs: `RATES=2,3 bench/ablate.sh <tag> GATEWAY_ROUTING=... GATEWAY_ADMISSION=1`, then `python -m bench.report --tag <tag> --slo 2.0`.
+Read CLAUDE.md, docs/PROJECT_BRIEF.md, this file. `make setup && make download`. A/B: `RATES=2,3 bench/ablate.sh <tag> ENV=...`, `python -m bench.report --tag <tag> --slo 2.0`. Model: `make perfmodel`.
