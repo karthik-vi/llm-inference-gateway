@@ -1,19 +1,22 @@
 # PROGRESS
 
 ## Done
-- Phase 0: env check (docs/ENVIRONMENT.md), skeleton, CI, Makefile, ruff/pytest.
-- Phase 1 (partial): llama.cpp built (vendor/, gitignored), Qwen2.5 0.5B/1.5B Q4_K_M + Bitext downloaded (`make download`), gateway v0 (round-robin, SSE, timeouts, Prometheus, OTel spans), trace builder (synthetic multi-turn from Bitext), Poisson load generator, sweep + report scripts. Smoke test OK (10/10 requests).
+- Phase 0: env check, skeleton, CI, Makefile, ruff/pytest.
+- Phase 1 (acceptance met): llama.cpp CPU build, 2 replicas (`scripts/replicas.sh`), gateway v0 (round-robin, SSE, upstream cancel on disconnect via closing the stream, timeouts, Prometheus, OTel spans), synthetic multi-turn trace builder, Poisson load generator, baseline sweep + report, SLO chosen (p95 TTFT <= 2 s), results in `results/`, docs (DECISIONS ADR-001/002, BENCHMARKS, DATA, ENVIRONMENT), README.
+- Headline: baseline saturates at ~1.6-1.7 req/s; goodput peaks 0.93 req/s then collapses to 0.06 at overload.
 
 ## In progress
-- Baseline sweep running: `python -m bench.sweep --tag baseline` (rates 0.5,1,2,3,4,6; 60s each) -> results/raw/baseline_*.csv, log logs/sweep_baseline.log.
+- Nothing.
 
 ## Next step
-1. When sweep finishes: choose SLO from data, run `python -m bench.report --tag baseline --slo X`, record in DECISIONS.md (thread split 2x2, SLO choice) and results/RESUME_METRICS.md.
-2. Wire `make bench-baseline` (replicas.sh start, gateway, trace, sweep, report). Add README, docs/BENCHMARKS.md, docs/DATA.md.
-3. Then Phase 2.
+- Phase 2 (Must), in order: (a) prefix-aware routing (consistent hash + load-aware fallback, config toggle, ablation row in `results/ablation.csv`), (b) SLO admission control, (c) gRPC control plane vs HTTP polling, (d) semantic cache, (e) quantization, (f) cascade. Then Phase 3.
 
-## Blockers
-- None. Docker unusable here (not verified in this environment).
+## Blockers / caveats
+- Docker daemon unusable (not verified in this environment).
+- `make bench-baseline` was assembled from the pieces that were run by hand; the Makefile target itself has NOT been run end to end. Run it once before relying on it.
+- Gateway unit tests cover only the router; loadgen/summarize and the SSE proxy have no tests yet (CI mocks needed). The 1.5B GGUF is downloaded but unused.
+- Replica threads are not core-pinned; ADR-001 compared no alternatives.
+- Upstream cancellation on client disconnect is implemented but not verified by a test.
 
 ## How to resume
-Read CLAUDE.md, docs/PROJECT_BRIEF.md, this file. `make setup && make download`, `scripts/replicas.sh start`, `python -m gateway.main &`, then continue the Next step list.
+Read CLAUDE.md, docs/PROJECT_BRIEF.md, this file. `make setup && make download`, then start Phase 2a.
