@@ -1,0 +1,36 @@
+# NOT VERIFIED IN THIS ENVIRONMENT (not applied to any cluster; YAML syntax only checked).
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: gateway-config}
+data:
+  config.yaml: |
+    gateway: {host: 0.0.0.0, port: 8080, routing: round_robin, admission: true, slo_ttft_s: 2.0}
+    replicas:
+      - {name: r0, url: "http://llama-0.llama:8080", tier: small}
+      - {name: r1, url: "http://llama-1.llama:8080", tier: small}
+    llama: {server_bin: llama-server, model_small: /models/q.gguf, model_large: /models/q.gguf}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: gateway}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: gateway}}
+  template:
+    metadata:
+      labels: {app: gateway}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8080"}
+    spec:
+      containers:
+        - name: gateway
+          image: llm-inference-gateway:latest
+          env: [{name: GATEWAY_CONFIG, value: /cfg/config.yaml}]
+          ports: [{containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}}
+          volumeMounts: [{name: cfg, mountPath: /cfg}]
+      volumes: [{name: cfg, configMap: {name: gateway-config}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: gateway}
+spec: {selector: {app: gateway}, ports: [{port: 80, targetPort: 8080}]}

@@ -1,0 +1,25 @@
+# NOT VERIFIED IN THIS ENVIRONMENT. Two llama.cpp replicas as a StatefulSet (stable DNS llama-0/llama-1).
+apiVersion: v1
+kind: Service
+metadata: {name: llama}
+spec: {clusterIP: None, selector: {app: llama}, ports: [{port: 8080}]}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: llama}
+spec:
+  serviceName: llama
+  replicas: 2
+  selector: {matchLabels: {app: llama}}
+  template:
+    metadata: {labels: {app: llama}}
+    spec:
+      containers:
+        - name: llama
+          image: ghcr.io/ggml-org/llama.cpp:server
+          args: ["-m", "/models/qwen2.5-0.5b-instruct-q4_k_m.gguf", "-t", "2", "-np", "4", "-c", "4096",
+                 "--cont-batching", "--cache-prompt", "--metrics", "--host", "0.0.0.0", "--port", "8080"]
+          resources: {requests: {cpu: "2", memory: 2Gi}, limits: {cpu: "2", memory: 3Gi}}
+          readinessProbe: {httpGet: {path: /health, port: 8080}}
+          volumeMounts: [{name: models, mountPath: /models}]
+      volumes: [{name: models, persistentVolumeClaim: {claimName: models-pvc}}]

@@ -1,0 +1,27 @@
+# SLO: 99% of requests get a first token within 2 s, over 30 days (error budget 1%).
+# SLI = good / total; good = requests with TTFT <= 2 s (histogram bucket le="2"), total = all requests
+# (rejections, timeouts and errors count as bad). Multi-window burn-rate alerts (Google SRE workbook).
+groups:
+  - name: slo
+    rules:
+      - record: sli:ttft_good_ratio:rate5m
+        expr: sum(rate(gw_ttft_seconds_bucket{le="2.0"}[5m])) / clamp_min(sum(rate(gw_requests_total[5m])), 1e-9)
+      - record: sli:ttft_good_ratio:rate30m
+        expr: sum(rate(gw_ttft_seconds_bucket{le="2.0"}[30m])) / clamp_min(sum(rate(gw_requests_total[30m])), 1e-9)
+      - record: sli:ttft_good_ratio:rate1h
+        expr: sum(rate(gw_ttft_seconds_bucket{le="2.0"}[1h])) / clamp_min(sum(rate(gw_requests_total[1h])), 1e-9)
+      - record: sli:ttft_good_ratio:rate6h
+        expr: sum(rate(gw_ttft_seconds_bucket{le="2.0"}[6h])) / clamp_min(sum(rate(gw_requests_total[6h])), 1e-9)
+      - alert: SLOFastBurn      # 14.4x burn: 2% of the 30-day budget in 1 h
+        expr: (1 - sli:ttft_good_ratio:rate1h) > 14.4 * 0.01 and (1 - sli:ttft_good_ratio:rate5m) > 14.4 * 0.01
+        labels: {severity: page}
+        annotations: {summary: "TTFT SLO budget burning >14x"}
+      - alert: SLOSlowBurn      # 6x burn: 5% of the budget in 6 h
+        expr: (1 - sli:ttft_good_ratio:rate6h) > 6 * 0.01 and (1 - sli:ttft_good_ratio:rate30m) > 6 * 0.01
+        labels: {severity: ticket}
+        annotations: {summary: "TTFT SLO budget burning >6x"}
+      - alert: ReplicaErrors
+        expr: sum by (replica) (rate(gw_errors_total[1m])) > 0
+        for: 10s
+        labels: {severity: page}
+        annotations: {summary: "upstream errors on {{ $labels.replica }}"}
