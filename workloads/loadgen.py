@@ -123,6 +123,7 @@ def summarize(recs: list[Rec], duration_s: float, slo_ttft_s: float) -> dict:
         "ttft_p50": pct(tt, 50), "ttft_p95": pct(tt, 95), "ttft_p99": pct(tt, 99),
         "e2e_p50": pct([r.e2e for r in ok], 50), "e2e_p95": pct([r.e2e for r in ok], 95),
         "itl_mean_p50": pct([r.itl_mean for r in ok if r.itl_mean], 50),
+        "cache_hits": sum(1 for r in ok if r.replica == "cache"),
         "prefill_tokens": sum(r.prefill_tokens for r in ok),
         "cached_tokens": sum(r.cached_tokens for r in ok),
         "prompt_tokens": sum(r.prompt_tokens for r in ok),

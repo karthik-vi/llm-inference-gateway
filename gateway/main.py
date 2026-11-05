@@ -5,6 +5,7 @@ import json
 import time
 from collections.abc import AsyncIterator
 
+import anyio
 import httpx
 import uvicorn
 from fastapi import FastAPI, Request
@@ -16,6 +17,7 @@ from gateway import metrics
 from gateway.admission import AdmissionController
 from gateway.config import Replica, Settings, load_settings
 from gateway.router import make_router, prefix_key
+from gateway.semcache import SemanticCache, cacheable, fastembed_fn
 
 tracer = trace.get_tracer("gateway")
 
@@ -33,6 +35,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         limits=httpx.Limits(max_connections=512, max_keepalive_connections=64),
     )
 
+    sem = (SemanticCache(fastembed_fn(), gw.semcache_threshold) if gw.semcache else None)
+
+    async def cached_stream(answer: str) -> AsyncIterator[bytes]:
+        def chunk(d: dict) -> bytes:
+            return ("data: " + json.dumps(d) + "\n\n").encode()
+        yield chunk({"choices": [{"index": 0, "delta": {"content": answer}}]})
+        yield chunk({"choices": [], "usage": {"prompt_tokens": 0, "completion_tokens": 0},
+                     "timings": {"prompt_n": 0, "cache_n": 0}})
+        yield b"data: [DONE]\n\n"
+
     @app.get("/metrics")
     async def prom() -> Response:
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
@@ -41,12 +53,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    async def stream_upstream(rep: Replica, body: dict) -> AsyncIterator[bytes]:
+    async def stream_upstream(rep: Replica, body: dict,
+                              cache_text: str | None = None) -> AsyncIterator[bytes]:
         """Proxy SSE. Leaving the `async with` (incl. on client disconnect, which cancels
         this generator) closes the upstream connection, which makes llama-server abort."""
         t0 = time.perf_counter()
         last: float | None = None
         first_ttft: float | None = None
+        parts: list[str] = []
         status = "ok"
         n_at_start = inflight[rep.name] - 1
         try:
@@ -64,6 +78,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         now = time.perf_counter()
                         if line.startswith("data:") and "[DONE]" not in line:
                             delta = _has_content(line)
+                            if delta and cache_text is not None:
+                                parts.append(delta)
                             if delta and last is None:
                                 first_ttft = now - t0
                                 metrics.TTFT.labels(rep.name).observe(now - t0)
@@ -72,6 +88,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             if delta:
                                 last = now
                         yield (line + "\n\n").encode()
+                if sem is not None and cache_text is not None and parts:
+                    await anyio.to_thread.run_sync(sem.add, cache_text, "".join(parts))
         except httpx.TimeoutException:
             status = "timeout"
             metrics.ERRORS.labels(rep.name, "timeout").inc()
@@ -92,6 +110,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/v1/chat/completions")
     async def chat(request: Request) -> Response:
         body = await request.json()
+        ctext = None
+        if sem is not None and body.get("stream") and cacheable(body.get("messages", [])):
+            ctext = next(m["content"] for m in body["messages"] if m["role"] == "user")
+            with tracer.start_as_current_span("cache_lookup"):
+                ans, _sim = await anyio.to_thread.run_sync(sem.lookup, ctext)
+            if ans is not None:
+                metrics.CACHE.labels("hit").inc()
+                metrics.REQS.labels("cache", "ok").inc()
+                return StreamingResponse(cached_stream(ans), media_type="text/event-stream",
+                                         headers={"X-Replica": "cache"})
+            metrics.CACHE.labels("miss").inc()
         if adm is not None:
             with tracer.start_as_current_span("admission"):
                 d = adm.decide(inflight)
@@ -105,7 +134,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if body.get("stream"):
             body.setdefault("stream_options", {"include_usage": True})
             return StreamingResponse(
-                stream_upstream(rep, body),
+                stream_upstream(rep, body, ctext),
                 media_type="text/event-stream",
                 headers={"X-Replica": rep.name},
             )
@@ -126,13 +155,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     return app
 
 
-def _has_content(line: str) -> bool:
+def _has_content(line: str) -> str:
     try:
         obj = json.loads(line[5:])
         ch = obj.get("choices") or []
-        return bool(ch and (ch[0].get("delta") or {}).get("content"))
+        return (ch[0].get("delta") or {}).get("content") or "" if ch else ""
     except (ValueError, AttributeError):
-        return False
+        return ""
 
 
 if __name__ == "__main__":

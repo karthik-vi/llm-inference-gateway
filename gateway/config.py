@@ -18,6 +18,8 @@ class GatewayCfg(BaseModel):
     slo_ttft_s: float = 2.0
     slots_per_replica: int = 4
     admission_margin: float = 1.0
+    semcache: bool = False         # semantic cache (env GATEWAY_SEMCACHE=1)
+    semcache_threshold: float = 0.92
 
 
 class Replica(BaseModel):
@@ -52,6 +54,8 @@ def load_settings(path: str | None = None) -> Settings:
     s = Settings.model_validate(yaml.safe_load(p.read_text()))
     if os.environ.get("GATEWAY_ROUTING"):
         s.gateway.routing = os.environ["GATEWAY_ROUTING"]
+    if os.environ.get("GATEWAY_SEMCACHE"):
+        s.gateway.semcache = os.environ["GATEWAY_SEMCACHE"] == "1"
     if os.environ.get("GATEWAY_ADMISSION"):
         s.gateway.admission = os.environ["GATEWAY_ADMISSION"] == "1"
     return s

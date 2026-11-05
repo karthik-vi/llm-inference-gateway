@@ -11,3 +11,4 @@ ITL = Histogram(
 )
 ERRORS = Counter("gw_errors_total", "Errors", ["replica", "kind"])
 REJECTED = Counter("gw_rejected_total", "Requests rejected by admission control")
+CACHE = Counter("gw_semcache_total", "Semantic cache lookups", ["result"])

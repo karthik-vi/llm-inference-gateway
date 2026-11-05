@@ -3,7 +3,7 @@ PY ?= .venv/bin/python
 
 setup:
 	uv venv --python 3.11 .venv || python3 -m venv .venv
-	uv pip install --python $(PY) -e ".[dev,bench]" || $(PY) -m pip install -e ".[dev,bench]"
+	uv pip install --python $(PY) -e ".[dev,bench,cache]" || $(PY) -m pip install -e ".[dev,bench,cache]"
 
 download:  ## models + data (gitignored); implemented in Phase 1
 	bash scripts/download.sh

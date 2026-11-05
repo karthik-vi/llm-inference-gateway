@@ -6,6 +6,7 @@ cd "$(dirname "$0")/.."
 PY=${PY:-.venv/bin/python}; TAG=$1; shift
 bash scripts/replicas.sh stop; sleep 2; bash scripts/replicas.sh start >/dev/null
 env "$@" $PY -m gateway.main > logs/gateway_$TAG.log 2>&1 & GW=$!
-sleep 3
+sleep 12   # semcache loads the embedding model at startup
+[ -n "${WARM:-}" ] && $PY -m bench.warm_cache
 $PY -m bench.sweep --tag "$TAG" --rates "${RATES:-1,2}" --duration "${DURATION:-60}"
 kill $GW; bash scripts/replicas.sh stop
