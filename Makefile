@@ -31,8 +31,9 @@ bench-ablation:  ## ~1 h on 4 vCPU; each step restarts replicas. Reports land in
 	bench/cascade_ab.sh
 	@echo "Summaries: python -m bench.report --tag <tag> --slo 2.0"
 
-perfmodel:
-	@echo "Phase 3 - not implemented yet" && false
+perfmodel:  ## predicted vs measured table (uses results/*.csv; `$(PY) -m perfmodel.micro` re-measures HW)
+	$(PY) -m perfmodel.correlate
+	$(PY) -m perfmodel.validate
 
 eval:
 	@echo "Phase 4 - not implemented yet" && false

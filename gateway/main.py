@@ -32,8 +32,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     router = make_router(cfg.gateway.routing, cfg.replicas, cfg.gateway.max_inflight_per_replica)
     inflight: dict[str, int] = {r.name: 0 for r in cfg.replicas}
     gw = cfg.gateway
-    adm = (AdmissionController(gw.slo_ttft_s, gw.slots_per_replica, gw.admission_margin)
-           if gw.admission else None)
+    adm = None
+    if gw.admission:
+        kw: dict[str, float] = {}
+        if gw.admission_seed == "perfmodel":  # same service-time model as the capacity planner
+            from perfmodel.planner import load_len_dists, rates
+            pp, tg = rates("0.5b", "q4_k_m", cfg.llama.threads_per_replica)
+            pre, out = load_len_dists()
+            kw = {"init_ttft_s": float(pre.mean() / pp),
+                  "init_service_s": float((pre / pp + out / tg).mean())}
+        adm = AdmissionController(gw.slo_ttft_s, gw.slots_per_replica, gw.admission_margin, **kw)
     client = httpx.AsyncClient(
         timeout=httpx.Timeout(cfg.gateway.upstream_timeout_s, connect=5.0),
         limits=httpx.Limits(max_connections=512, max_keepalive_connections=64),

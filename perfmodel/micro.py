@@ -3,13 +3,12 @@ Writes results/hw_profile_cpu.json."""
 from __future__ import annotations
 
 import json
-import platform
 import time
 
 import numpy as np
 
 
-def triad_gbs(n: int = 40_000_000, reps: int = 5, threads_note: str = "single-thread numpy") -> float:
+def triad_gbs(n: int = 40_000_000, reps: int = 5) -> float:
     a = np.zeros(n, dtype=np.float32)
     b = np.random.rand(n).astype(np.float32)
     c = np.random.rand(n).astype(np.float32)
@@ -39,7 +38,7 @@ def gemm_gflops(m: int = 1024, reps: int = 5) -> float:
 if __name__ == "__main__":
     import os
 
-    out = {"cpu": platform.processor() or "Intel Xeon @ 2.80GHz", "cores": os.cpu_count(),
+    out = {"cpu": "Intel Xeon @ 2.80GHz (4 vCPU)", "cores": os.cpu_count(),
            "triad_GBps_numpy_1thread": round(triad_gbs(), 2),
            "gemm_fp32_GFLOPs_blas_all_threads": round(gemm_gflops(), 1)}
     json.dump(out, open("results/hw_profile_cpu.json", "w"), indent=1)

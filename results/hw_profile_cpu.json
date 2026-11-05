@@ -1,0 +1,6 @@
+{
+ "cpu": "Intel Xeon @ 2.80GHz (4 vCPU)",
+ "cores": 4,
+ "triad_GBps_numpy_1thread": 12.43,
+ "gemm_fp32_GFLOPs_blas_all_threads": 231.2
+}

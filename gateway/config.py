@@ -18,6 +18,7 @@ class GatewayCfg(BaseModel):
     slo_ttft_s: float = 2.0
     slots_per_replica: int = 4
     admission_margin: float = 1.0
+    admission_seed: str = "none"   # none | perfmodel: seed EWMAs from the Phase 3 service-time model
     semcache: bool = False         # semantic cache (env GATEWAY_SEMCACHE=1)
     semcache_threshold: float = 0.92
     cascade: str = "off"          # off | rule | llm (env GATEWAY_CASCADE)

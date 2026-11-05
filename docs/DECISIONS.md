@@ -123,3 +123,30 @@ Format per entry: Context -> Options considered -> Decision -> Evidence (numbers
   | 3.0 | 0.24 | 1.37 | 0.80 | 0.99 | 25/143 cache hits, 35 rejected/failed, p95 TTFT 4.80 s |
   | 6.0 | 0.06 | 1.04 | not run | 1.17 | all 74 successful requests were cache hits; every LLM-bound request (123) was rejected; "p95 0.028 s" is cache-hit latency only and is not a meaningful TTFT |
 - **Result: not additive.** At 3 rps the combination (0.99) is worse than admission alone (1.37) in this single run; at 6 rps it is slightly better (1.17 vs 1.04) but only because the cache served everything that was admitted. The 6 rps run suggests the EWMA estimator can shed LLM traffic almost completely once its service-time estimate is inflated, a flaw to fix (e.g. decay or a probe quota) before relying on it. No claim is made that the combination beats the best single technique.
+
+## ADR-010: Performance model, capacity planner, gateway overhead (Phase 3)
+- **Problem / metric:** answer "how many replicas does this workload need?" without trying every size. Metrics: prediction error % per configuration (tokens/s) and p95-TTFT error at measured operating points; gateway added latency.
+- **Hardware microbenchmarks** (`python -m perfmodel.micro` -> results/hw_profile_cpu.json): triad 12.43 GB/s (single-thread numpy, a lower bound for 2+ threads), fp32 GEMM 231.2 GFLOP/s (BLAS, 4 cores).
+- **Model** (`perfmodel/model.py`): prefill tok/s = GEMM/core x threads / (2 x params); decode tok/s = triad x threads / weight bytes (batch 1). Measured data: llama-bench, results/quant_bench.csv and results/threads_bench.csv (3 reps, means).
+- **Correlation, before -> after one refinement** (`make perfmodel`; results/perfmodel_validation.csv). "Before" = raw microbenchmarks, linear thread scaling. "After" = thread exponents (alpha_c 0.74, alpha_b 0.73) fitted on the 0.5B Q4_K_M thread sweep and per-quant efficiency factors fitted on 0.5B at 2 threads **only**; the 1.5B model is held out:
+
+  | held-out config (1.5B) | decode before | decode after | prefill before | prefill after |
+  |---|---|---|---|---|
+  | Q4_K_M, 1 thread | +76% | 0% | -42% | -38% |
+  | Q4_K_M, 2 threads | +93% | -9% | -42% | -48% |
+  | Q4_K_M, 4 threads | +137% | -8% | -34% | -51% |
+  | Q8_0, 2 threads | +87% | +3% | -6% | +15% |
+  | **mean abs error** | **98%** | **5%** | **31%** | **38%** |
+  Decode (memory-bound) refinement transfers across model size; **prefill refinement does not** (it got worse, 31% -> 38%). Biggest miss: 1.5B prefill is ~2x faster than the 0.5B-fitted efficiency predicts, i.e. the 0.5B model uses the CPU less efficiently in prefill (small matrices, per-layer overheads), so compute efficiency is not model-size independent. This is a hypothesis; not tested further. Other known unmodelled effects: batch >1 decode, cache effects, tokenizer, thread contention between replicas. In-sample rows (0.5B at 1 and 4 threads) have 3-6% error but share the alpha fit.
+- **Capacity planner** (`python -m perfmodel.planner --rate R --slo S`): service times from the model + Monte Carlo FIFO M/G/c queue on empirical prefill/output-token distributions (from the recorded round-robin runs). One calibrated constant: effective parallelism per replica = 1.55 (4 slots on 2 threads do not give 4x throughput), chosen so predicted saturation matches the measured baseline saturation: predicted 1.68 req/s vs measured 1.6-1.7 req/s (in-sample).
+- **Validation vs measured operating points** (2 replicas, 0.5B Q4_K_M, `perfmodel.validate`):
+
+  | measured arrival req/s | measured p95 TTFT | predicted p95 TTFT | error |
+  |---|---|---|---|
+  | 0.55 | 1.34 s | 2.13 s | +58% |
+  | 0.94 | 1.53 s | 2.56 s | +67% |
+  | 1.57 | 4.03 s | 15.74 s | +291% |
+  The planner is **pessimistic** (over-provisions), increasingly so near saturation, because the real replicas speed up per request under batching while the model uses fixed service times. For the stated purpose (don't under-buy hardware) the error direction is the safe one, but the numbers are not accurate. Example output: 1.0 req/s with SLO p95 TTFT <= 2 s -> 3 replicas x 2 threads (predicted p95 1.99 s); not verified by running 3 replicas (only 4 cores here).
+- **Admission control wiring:** `gateway.admission_seed: perfmodel` seeds the admission EWMAs (TTFT base, service time) from the same model. It is implemented but **not A/B tested**.
+- **Gateway overhead** (`bench/overhead.sh`: mock upstream, 40 req/s, 748 requests per side, 32 streamed tokens, same host): TTFT direct 3.5 / 5.2 / 8.0 ms (p50/p95/p99) vs via gateway 7.3 / 14.7 / 19.6 ms, i.e. **added TTFT +3.8 ms p50, +9.5 ms p95**; end-to-end +2.5 ms p50, +6.2 ms p95. Against ~600 ms real TTFT this is <2%.
+- **Flamegraph** results/gateway_flamegraph.svg (py-spy, 1085 samples): the top hotspot is httpx's SSE line iteration, 38% of samples (library code); our own JSON parsing in `_has_content` is 2.3%. Not meaningful enough to fix; no change made.
