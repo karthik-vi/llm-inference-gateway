@@ -114,3 +114,12 @@ Format per entry: Context -> Options considered -> Decision -> Evidence (numbers
   | 250 ms | grpc push | 133.4 / 245.2 / 256.8 | 5.96 | 17 |
 - **Result: no benefit on one host.** Staleness is about period/2 plus a few ms in both, and slightly worse for gRPC; payload is ~160x smaller with gRPC, but CPU is not lower (the gRPC cell includes the in-process sidecar, which still polls llama-server, so it adds a hop). The "cached prefix hashes" field in the brief is not implemented: llama-server does not expose its KV prefixes.
 - **Decision:** HTTP polling is the default and sufficient here; the gRPC sidecar is kept as documented, **unused** code. Neither is currently wired into routing/admission: the gateway's own in-flight counters (zero staleness for traffic that passes through it) are what ADR-003/004 use. A multi-host deployment with many replicas, where bytes matter, would be the case to re-test. Not verified in this environment.
+
+## ADR-009: Combined admission control + semantic cache (all-together run)
+- **Evidence** (results/ablation.csv; one run each; cache pre-warmed with 164 queries; cascade/prefix routing off because they were negative):
+
+  | nominal rps | baseline goodput | admission only | cache only | combined | combined notes |
+  |---|---|---|---|---|---|
+  | 3.0 | 0.24 | 1.37 | 0.80 | 0.99 | 25/143 cache hits, 35 rejected/failed, p95 TTFT 4.80 s |
+  | 6.0 | 0.06 | 1.04 | not run | 1.17 | all 74 successful requests were cache hits; every LLM-bound request (123) was rejected; "p95 0.028 s" is cache-hit latency only and is not a meaningful TTFT |
+- **Result: not additive.** At 3 rps the combination (0.99) is worse than admission alone (1.37) in this single run; at 6 rps it is slightly better (1.17 vs 1.04) but only because the cache served everything that was admitted. The 6 rps run suggests the EWMA estimator can shed LLM traffic almost completely once its service-time estimate is inflated, a flaw to fix (e.g. decay or a probe quota) before relying on it. No claim is made that the combination beats the best single technique.

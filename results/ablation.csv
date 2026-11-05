@@ -20,3 +20,5 @@ cascade_llm_1x0.5B+1x1.5B,llm,0.5,0.39,41,2.76,9.68,10.23,0.151,,0
 cascade_always_large_2x1.5B,round_robin,1.0,0.55,60,2.54,8.38,10.10,0.219,,0
 cascade_rule_1x0.5B+1x1.5B,rule,1.0,0.54,64,5.84,22.40,25.12,0.229,,0
 cascade_llm_1x0.5B+1x1.5B,llm,1.0,0.54,64,7.04,27.17,28.93,0.219,,0
+combined_admission+semcache,slo2.0_thr0.92_warm164,3.0,1.731,143,1.042,4.796,5.725,0.993,,35
+combined_admission+semcache,slo2.0_thr0.92_warm164,6.0,3.102,197,0.016,0.028,0.038,1.165,,123
