@@ -98,3 +98,19 @@ Format per entry: Context -> Options considered -> Decision -> Evidence (numbers
   For reference, always-0.5B on 2 replicas (Phase 1 baseline) had p95 TTFT 1.34 s / 1.53 s at nominal 0.5 / 1.0 rps.
 - **Result: negative.** With this workload about two thirds of turns are multi-turn or state-dependent (HARD), so the single 1.5B replica receives ~2/3 of traffic and becomes the bottleneck; the cascade is *slower* than simply running 2x 1.5B, and the LLM router adds an extra model call without better routing than the rule. The topology was not sized to the traffic split (a 1:2 small:large replica ratio, or more cores, was not tried). Cost per 1k requests was not measured, so no cost claim is made.
 - **Decision:** keep the code, default `cascade: off`. The cascade only makes sense when most turns are easy or replicas are provisioned in proportion to the escalation rate; this is exactly what the Phase 3 capacity planner should size. Quality of 0.5B vs 1.5B is not yet measured (Phase 4).
+
+## ADR-007: gRPC control plane vs HTTP polling of replica stats
+- **Problem / metric:** routing and admission need fresh replica load. Metrics: staleness (age of the latest value at random read instants), client CPU per update, bytes per update. `python -m bench.control_plane` -> results/control_plane.csv (replica under 3 concurrent requests; 15 s per cell; same host; 2026-11-05).
+- **Options:** (a) gateway polls llama-server `/metrics` (HTTP); (b) per-replica sidecar (`control/sidecar.py`, schema `control/load.proto`) reads `/metrics` locally and pushes `LoadStats` over a bidirectional gRPC stream.
+- **Evidence:**
+
+  | period | mode | age p50 / p95 / p99 (ms) | client CPU ms/update | bytes/update |
+  |---|---|---|---|---|
+  | 50 ms | http poll | 28.7 / 50.2 / 52.4 | 3.49 | 2583 |
+  | 50 ms | grpc push | 31.7 / 57.0 / 60.4 | 4.14 | 16 |
+  | 100 ms | http poll | 53.9 / 97.8 / 101.9 | 3.89 | 2584 |
+  | 100 ms | grpc push | 55.8 / 102.9 / 108.6 | 4.71 | 16 |
+  | 250 ms | http poll | 127.8 / 235.2 / 245.2 | 6.34 | 2585 |
+  | 250 ms | grpc push | 133.4 / 245.2 / 256.8 | 5.96 | 17 |
+- **Result: no benefit on one host.** Staleness is about period/2 plus a few ms in both, and slightly worse for gRPC; payload is ~160x smaller with gRPC, but CPU is not lower (the gRPC cell includes the in-process sidecar, which still polls llama-server, so it adds a hop). The "cached prefix hashes" field in the brief is not implemented: llama-server does not expose its KV prefixes.
+- **Decision:** HTTP polling is the default and sufficient here; the gRPC sidecar is kept as documented, **unused** code. Neither is currently wired into routing/admission: the gateway's own in-flight counters (zero staleness for traffic that passes through it) are what ADR-003/004 use. A multi-host deployment with many replicas, where bytes matter, would be the case to re-test. Not verified in this environment.

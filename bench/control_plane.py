@@ -7,7 +7,6 @@ from __future__ import annotations
 import asyncio
 import random
 import resource
-import statistics
 import sys
 import time
 
@@ -84,8 +83,8 @@ def cpu() -> float:
 async def main(dur: float = 15.0) -> None:
     srv = asyncio.create_task(serve("r0", LLAMA, 9101))
     await asyncio.sleep(1)
-    stop = asyncio.Event()
-    load = asyncio.create_task(background_load(stop))
+    load = await asyncio.create_subprocess_exec(sys.executable, "-m", "bench.control_plane",
+                                                "--load")  # load in its own process
     print("mode,period_ms,updates_per_s,age_p50_ms,age_p95_ms,age_p99_ms,client_cpu_ms_per_update,bytes_per_update")
     for period in (0.05, 0.1, 0.25):
         for mode, fn in (("http_poll", run_http), ("grpc_push", run_grpc)):
@@ -98,8 +97,12 @@ async def main(dur: float = 15.0) -> None:
             print(f"{mode},{int(period*1000)},{stats['updates']/dur:.1f},{np.percentile(a,50):.1f},"
                   f"{np.percentile(a,95):.1f},{np.percentile(a,99):.1f},{cpu_ms:.2f},"
                   f"{stats['bytes']/max(stats['updates'],1):.0f}", flush=True)
-    stop.set(); load.cancel(); srv.cancel()
+    load.terminate()
+    srv.cancel()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    if "--load" in sys.argv:
+        asyncio.run(background_load(asyncio.Event()))
+    else:
+        asyncio.run(main())

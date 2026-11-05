@@ -20,8 +20,16 @@ bench-baseline:  ## ~11 min on 4 vCPU: 2 replicas, gateway, sweep, report
 	$(PY) -m bench.report --tag baseline --slo $(SLO)
 	kill `cat logs/gw.pid`; bash scripts/replicas.sh stop
 
-bench-ablation:
-	@echo "Phase 2 - not implemented yet" && false
+bench-ablation:  ## ~1 h on 4 vCPU; each step restarts replicas. Reports land in results/ablation.csv (manual rows)
+	bash scripts/download.sh
+	RATES=1,2 bench/ablate.sh rr GATEWAY_ROUTING=round_robin
+	RATES=1,2 bench/ablate.sh prefix GATEWAY_ROUTING=prefix
+	RATES=2,3,4,6 bench/ablate.sh adm GATEWAY_ADMISSION=1
+	RATES=1,2,3 WARM=1 bench/ablate.sh sem GATEWAY_SEMCACHE=1
+	bench/quant.sh
+	$(PY) -m bench.control_plane
+	bench/cascade_ab.sh
+	@echo "Summaries: python -m bench.report --tag <tag> --slo 2.0"
 
 perfmodel:
 	@echo "Phase 3 - not implemented yet" && false

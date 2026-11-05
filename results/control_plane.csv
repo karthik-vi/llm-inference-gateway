@@ -1,0 +1,7 @@
+mode,period_ms,updates_per_s,age_p50_ms,age_p95_ms,age_p99_ms,client_cpu_ms_per_update,bytes_per_update
+http_poll,50,19.6,28.7,50.2,52.4,3.49,2583
+grpc_push,50,18.3,31.7,57.0,60.4,4.14,16
+http_poll,100,9.9,53.9,97.8,101.9,3.89,2584
+grpc_push,100,9.7,55.8,102.9,108.6,4.71,16
+http_poll,250,4.0,127.8,235.2,245.2,6.34,2585
+grpc_push,250,4.0,133.4,245.2,256.8,5.96,17

@@ -20,7 +20,7 @@ mkdir -p logs; i=0
 for sp in $SPEC; do
   port=${sp%%:*}; MODEL=${sp#*:}
   nohup $BIN -m $MODEL --host 127.0.0.1 --port $port -t $T -np $P -c $((C*P)) \
-    --cont-batching --cache-prompt > logs/replica$i.log 2>&1 &
+    --cont-batching --cache-prompt --metrics > logs/replica$i.log 2>&1 &
   i=$((i+1))
 done
 for port in $PORTS; do
